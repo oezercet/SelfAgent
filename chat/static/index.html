@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SelfAgent</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-left">
+                <div class="avatar">SA</div>
+                <div class="header-info">
+                    <h1>SelfAgent</h1>
+                    <span id="status-text">Connecting...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <span id="token-display" class="token-display" title="Session token usage"></span>
+                <button id="tasks-btn" title="Tasks">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                </button>
+                <button id="clear-btn" title="Clear conversation">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+                </button>
+                <button id="settings-btn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <div id="main-layout">
+            <!-- Task Sidebar -->
+            <aside id="task-sidebar" class="hidden">
+                <div class="sidebar-header">
+                    <h3>Tasks</h3>
+                    <button id="sidebar-close">&times;</button>
+                </div>
+                <div id="task-list" class="task-list">
+                    <p class="sidebar-empty">No active tasks</p>
+                </div>
+            </aside>
+
+            <!-- Chat Area -->
+            <div id="chat-area">
+                <!-- Chat Messages -->
+                <main id="chat-messages">
+                    <div class="welcome-message">
+                        <div class="welcome-icon">SA</div>
+                        <h2>Welcome to SelfAgent</h2>
+                        <p>Your AI, Your Computer, Your Rules.</p>
+                        <p class="welcome-hint" id="welcome-hint">Set your API key in settings to get started.</p>
+                    </div>
+                </main>
+
+                <!-- Typing Indicator -->
+                <div id="typing-indicator" class="hidden">
+                    <div class="typing-bubble">
+                        <span></span><span></span><span></span>
+                        <span class="typing-text">Agent is working...</span>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <footer id="input-area">
+                    <div class="input-container">
+                        <label id="attach-btn" title="Attach file">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                            <input type="file" id="file-input" hidden multiple>
+                        </label>
+                        <textarea id="message-input" placeholder="Type a message..." rows="1" autofocus></textarea>
+                        <button id="send-btn" title="Send">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                        </button>
+                    </div>
+                    <div id="file-preview" class="file-preview hidden"></div>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="hidden">
+            <div class="settings-backdrop"></div>
+            <div class="settings-content">
+                <div class="settings-header">
+                    <h2>Settings</h2>
+                    <button id="settings-close">&times;</button>
+                </div>
+                <div class="settings-body">
+                    <!-- Tabs -->
+                    <div class="settings-tabs">
+                        <button class="tab-btn active" data-tab="general">General</button>
+                        <button class="tab-btn" data-tab="tools">Tools</button>
+                    </div>
+
+                    <!-- General Tab -->
+                    <div class="tab-content active" id="tab-general">
+                        <div class="setting-group">
+                            <label for="provider-select">Provider</label>
+                            <select id="provider-select">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="google">Google (Gemini)</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div class="setting-group api-keys-section">
+                            <label>API Keys</label>
+                            <div class="api-key-row" data-provider="openai">
+                                <span class="api-key-label">OpenAI</span>
+                                <input type="password" id="key-openai" class="api-key-field" placeholder="sk-...">
+                            </div>
+                            <div class="api-key-row" data-provider="anthropic">
+                                <span class="api-key-label">Anthropic</span>
+                                <input type="password" id="key-anthropic" class="api-key-field" placeholder="sk-ant-...">
+                            </div>
+                            <div class="api-key-row" data-provider="google">
+                                <span class="api-key-label">Google</span>
+                                <input type="password" id="key-google" class="api-key-field" placeholder="AIza...">
+                            </div>
+                            <div class="api-key-row" data-provider="openrouter">
+                                <span class="api-key-label">OpenRouter</span>
+                                <input type="password" id="key-openrouter" class="api-key-field" placeholder="sk-or-...">
+                            </div>
+                            <p class="api-keys-hint">Only the key for the selected provider is used.</p>
+                        </div>
+                        <div class="setting-group">
+                            <label for="model-select">Model</label>
+                            <select id="model-select">
+                                <optgroup label="OpenAI" id="openai-models">
+                                    <option value="gpt-4o">GPT-4o</option>
+                                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                </optgroup>
+                                <optgroup label="Anthropic" id="anthropic-models">
+                                    <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                                    <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                                </optgroup>
+                                <optgroup label="Google" id="google-models">
+                                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Vision)</option>
+                                </optgroup>
+                                <optgroup label="OpenRouter (Free)" id="openrouter-models">
+                                    <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (Fast, Free)</option>
+                                    <option value="mistralai/mistral-small-3.1-24b-instruct:free">Mistral Small 3.1 (Fast, Free)</option>
+                                    <option value="qwen/qwen3-coder:free">Qwen3 Coder (Free)</option>
+                                    <option value="google/gemma-3-27b-it:free">Gemma 3 27B (Free)</option>
+                                    <option value="openai/gpt-oss-120b:free">GPT-OSS 120B (Free)</option>
+                                    <option value="deepseek/deepseek-r1-0528:free">DeepSeek R1 (Slow, Free)</option>
+                                    <option value="nousresearch/hermes-3-llama-3.1-405b:free">Hermes 3 405B (Free)</option>
+                                </optgroup>
+                                <optgroup label="OpenRouter (Paid)" id="openrouter-paid-models">
+                                    <option value="openai/gpt-4o">GPT-4o</option>
+                                    <option value="anthropic/claude-sonnet-4">Claude Sonnet 4</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="setting-group">
+                            <label for="temp-input">Temperature</label>
+                            <input type="range" id="temp-input" min="0" max="1" step="0.1" value="0.7">
+                            <span id="temp-value">0.7</span>
+                        </div>
+                        <button id="save-settings" class="btn-primary">Save Settings</button>
+                    </div>
+
+                    <!-- Tools Tab -->
+                    <div class="tab-content" id="tab-tools">
+                        <p class="tools-hint">Enable or disable tools the agent can use.</p>
+                        <div id="tools-toggles" class="tools-toggles">
+                            <p class="sidebar-empty">Loading tools...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

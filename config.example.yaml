@@ -1,0 +1,42 @@
+# SelfAgent Configuration
+# Copy this file to config.yaml and fill in your API key.
+
+model:
+  provider: "openai"           # openai | anthropic | google | openrouter
+  model_name: "gpt-4o"        # gpt-4o, gpt-4o-mini, claude-sonnet-4-20250514, gemini-2.0-flash
+  max_tokens: 4096
+  temperature: 0.7
+  # Per-provider API keys — fill in the ones you use
+  openai_key: ""               # sk-...
+  anthropic_key: ""            # sk-ant-...
+  google_key: ""               # AIza...
+  openrouter_key: ""           # sk-or-...
+
+memory:
+  max_short_term: 50           # Messages kept in context
+  vector_db: true              # Enable ChromaDB for long-term memory
+  auto_summarize: true         # Auto-summarize old conversations
+
+email:
+  enabled: false
+  imap_server: ""
+  smtp_server: ""
+  email: ""
+  password: ""                 # App-specific password
+
+browser:
+  headless: true               # Run browser headless
+  timeout: 30                  # Page load timeout (seconds)
+
+safety:
+  require_confirmation: true   # Ask before destructive actions
+  blocked_commands:            # Never execute these
+    - "rm -rf /"
+    - "format"
+    - "mkfs"
+  max_file_size_mb: 100        # Max file operation size
+
+server:
+  host: "127.0.0.1"
+  port: 8765
+  open_browser: true           # Auto-open chat UI on start

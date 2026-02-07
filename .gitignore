@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+
+# SelfAgent
+config.yaml
+storage/
+*.db
+*.log
+CLAUDE-CODE-PROMPT.md
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
