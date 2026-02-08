@@ -27,9 +27,12 @@ class ModelConfig:
     anthropic_key: str = ""
     google_key: str = ""
     openrouter_key: str = ""
+    ollama_base_url: str = "http://localhost:11434"
 
     def get_active_key(self) -> str:
         """Return the API key for the current provider."""
+        if self.provider == "ollama":
+            return "ollama"  # No key needed for local Ollama
         provider_keys = {
             "openai": self.openai_key,
             "anthropic": self.anthropic_key,
@@ -76,6 +79,7 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8765
     open_browser: bool = True
+    auth_pin: str = ""  # Optional PIN for WebSocket auth (empty = no auth)
 
 
 @dataclass
@@ -104,7 +108,7 @@ def load_config(path: Path | None = None) -> Config:
 
     Falls back to defaults if config file doesn't exist.
     """
-    config_path = path or CONFIG_PATH
+    config_path = Path(path) if isinstance(path, str) else (path or CONFIG_PATH)
 
     if not config_path.exists():
         logger.warning(

@@ -2,7 +2,7 @@
 # Copy this file to config.yaml and fill in your API key.
 
 model:
-  provider: "openai"           # openai | anthropic | google | openrouter
+  provider: "openai"           # openai | anthropic | google | openrouter | ollama
   model_name: "gpt-4o"        # gpt-4o, gpt-4o-mini, claude-sonnet-4-20250514, gemini-2.0-flash
   max_tokens: 4096
   temperature: 0.7
@@ -11,6 +11,11 @@ model:
   anthropic_key: ""            # sk-ant-...
   google_key: ""               # AIza...
   openrouter_key: ""           # sk-or-...
+  # For local models via Ollama (no API key needed):
+  # provider: "ollama"
+  # model_name: "llama3.2"
+  # ollama_base_url: "http://localhost:11434"
+  # Install: brew install ollama && ollama pull llama3.2
 
 memory:
   max_short_term: 50           # Messages kept in context
@@ -40,3 +45,4 @@ server:
   host: "127.0.0.1"
   port: 8765
   open_browser: true           # Auto-open chat UI on start
+  auth_pin: ""                 # Optional PIN to protect chat (empty = no auth)

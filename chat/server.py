@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import sys
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,8 +12,10 @@ from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from chat.auth import is_auth_enabled, verify_pin, verify_token
+from chat.handlers import handle_check_ollama, handle_config, handle_message, handle_pull_ollama, send_ws
 from core.agent import Agent
-from core.config import get_config, update_config_from_dict
+from core.config import get_config
 from core.memory import Memory
 from core.model_router import ModelRouter
 from core.task_manager import TaskManager
@@ -142,6 +143,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     logger.info("Client connected")
 
+    # PIN auth check
+    authenticated = not is_auth_enabled()
+    session_token = ""
+
+    if not authenticated:
+        await send_ws(ws, "auth_required", "PIN required to continue.")
+
     # Only the most recent connection is the active one
     _active_ws = ws
 
@@ -149,6 +157,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             raw = await ws.receive_text()
 
+            # If no active connection, promote this one
+            if _active_ws is None:
+                _active_ws = ws
             # Ignore messages from stale connections
             if ws is not _active_ws:
                 logger.info("Ignoring message from stale WebSocket connection")
@@ -157,168 +168,64 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                await _send(ws, "error", "Invalid message format.")
+                await send_ws(ws, "error", "Invalid message format.")
                 continue
             msg_type = data.get("type", "message")
 
+            # Handle auth message
+            if msg_type == "auth":
+                pin = data.get("pin", "")
+                token = verify_pin(pin)
+                if token:
+                    authenticated = True
+                    session_token = token
+                    await send_ws(ws, "auth_success", "Authenticated.")
+                else:
+                    await send_ws(ws, "auth_failed", "Wrong PIN.")
+                continue
+
+            # Block non-auth messages until authenticated
+            if not authenticated:
+                await send_ws(ws, "auth_required", "PIN required to continue.")
+                continue
+
             if msg_type == "config":
                 # Frontend sending config updates (API key, model, etc.)
-                await _handle_config(ws, data)
+                await handle_config(ws, data)
             elif msg_type == "message":
                 # Use lock to prevent concurrent processing
                 if _processing_lock.locked():
-                    await _send(ws, "error", "Already processing a message. Please wait.")
+                    await send_ws(ws, "error", "Already processing a message. Please wait.")
                     continue
                 async with _processing_lock:
-                    await _handle_message(ws, data)
+                    await handle_message(ws, data, agent)
             elif msg_type == "get_tools":
                 if agent:
                     tools_list = agent.tools.list_tools_with_status()
-                    await _send(ws, "tools_list", "", metadata={"tools": tools_list})
+                    await send_ws(ws, "tools_list", "", metadata={"tools": tools_list})
             elif msg_type == "toggle_tool":
                 if agent:
                     name = data.get("tool_name", "")
                     enabled = data.get("enabled", True)
                     ok = agent.tools.set_tool_enabled(name, enabled)
                     if ok:
-                        await _send(ws, "status", f"Tool '{name}' {'enabled' if enabled else 'disabled'}.")
+                        await send_ws(ws, "status", f"Tool '{name}' {'enabled' if enabled else 'disabled'}.")
                     else:
-                        await _send(ws, "error", f"Unknown tool: {name}")
+                        await send_ws(ws, "error", f"Unknown tool: {name}")
+            elif msg_type == "check_ollama":
+                await handle_check_ollama(ws, data)
+            elif msg_type == "pull_ollama":
+                await handle_pull_ollama(ws, data)
             elif msg_type == "clear":
                 if agent:
                     agent.clear_conversation()
-                await _send(ws, "status", "Conversation cleared.")
+                await send_ws(ws, "status", "Conversation cleared.")
     except WebSocketDisconnect:
         logger.info("Client disconnected")
         if ws is _active_ws:
             _active_ws = None
     except Exception:
         logger.exception("WebSocket error")
-
-
-async def _handle_config(ws: WebSocket, data: dict) -> None:
-    """Apply config updates from the frontend settings panel."""
-    updates = data.get("config", {})
-    if not updates:
-        return
-
-    try:
-        model_updates = updates.get("model", {})
-
-        # Reject old-format config (has generic api_key but no per-provider keys).
-        # This prevents stale tabs from overriding the active config.
-        has_provider_keys = any(
-            model_updates.get(k)
-            for k in ("openai_key", "anthropic_key", "google_key", "openrouter_key")
-        )
-        if not has_provider_keys and "api_key" in model_updates:
-            logger.warning(
-                "Ignoring old-format config from stale tab: provider=%s",
-                model_updates.get("provider", "?"),
-            )
-            return
-
-        logger.info(
-            "Config update: provider=%s, model=%s",
-            model_updates.get("provider", "?"),
-            model_updates.get("model_name", "?"),
-        )
-        update_config_from_dict(updates)
-
-        config = get_config()
-        logger.info(
-            "Active config now: provider=%s, model=%s, active_key=%s",
-            config.model.provider,
-            config.model.model_name,
-            config.model.get_active_key()[:10] + "..." if config.model.get_active_key() else "EMPTY",
-        )
-        await _send(ws, "status", "Settings updated.")
-    except Exception as e:
-        logger.exception("Failed to update config")
-        await _send(ws, "error", f"Failed to update settings: {e}")
-
-
-async def _handle_message(ws: WebSocket, data: dict) -> None:
-    """Process a user chat message through the agent."""
-    content = data.get("content", "").strip()
-    if not content:
-        return
-
-    if not agent:
-        await _send(ws, "error", "Agent not initialized.")
-        return
-
-    config = get_config()
-    active_key = config.model.get_active_key()
-    if not active_key or active_key == "your-api-key-here":
-        await _send(
-            ws,
-            "error",
-            "Please set your API key in the settings panel (click the gear icon).",
-        )
-        return
-
-    # Send typing indicator
-    await _send(ws, "typing", "")
-
-    try:
-        async for event in agent.process_message(content):
-            etype = event["type"]
-            if etype == "text":
-                await _send(ws, "message", event["content"], role="assistant")
-            elif etype == "tool_start":
-                await _send(
-                    ws,
-                    "status",
-                    f"Using tool: {event['name']}...",
-                    metadata={"tool": event["name"], "arguments": event["arguments"]},
-                )
-            elif etype == "tool_result":
-                await _send(
-                    ws,
-                    "tool_result",
-                    event["result"],
-                    metadata={"tool": event["name"]},
-                )
-            elif etype == "error":
-                await _send(ws, "error", event["content"])
-            elif etype == "usage":
-                await _send(
-                    ws,
-                    "usage",
-                    "",
-                    metadata={
-                        "input_tokens": event["input_tokens"],
-                        "output_tokens": event["output_tokens"],
-                        "total_input_tokens": event["total_input_tokens"],
-                        "total_output_tokens": event["total_output_tokens"],
-                        "model": event.get("model", ""),
-                    },
-                )
-            elif etype == "done":
-                await _send(ws, "done", "")
-    except Exception as e:
-        logger.exception("Error processing message")
-        await _send(ws, "error", f"Something went wrong: {e}")
-
-
-async def _send(
-    ws: WebSocket,
-    msg_type: str,
-    content: str,
-    role: str = "system",
-    metadata: dict | None = None,
-) -> None:
-    """Send a message to the frontend."""
-    await ws.send_json(
-        {
-            "type": msg_type,
-            "content": content,
-            "role": role,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "metadata": metadata or {},
-        }
-    )
 
 
 @app.post("/upload")

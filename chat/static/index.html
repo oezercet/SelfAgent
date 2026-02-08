@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SelfAgent</title>
     <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/settings.css">
+    <link rel="stylesheet" href="/components.css">
 </head>
 <body>
     <div id="app">
@@ -51,7 +53,7 @@
                         <div class="welcome-icon">SA</div>
                         <h2>Welcome to SelfAgent</h2>
                         <p>Your AI, Your Computer, Your Rules.</p>
-                        <p class="welcome-hint" id="welcome-hint">Set your API key in settings to get started.</p>
+                        <p class="welcome-hint" id="welcome-hint">Set your API key in settings to get started, or use Ollama for free local models.</p>
                     </div>
                 </main>
 
@@ -104,6 +106,7 @@
                                 <option value="anthropic">Anthropic (Claude)</option>
                                 <option value="google">Google (Gemini)</option>
                                 <option value="openrouter">OpenRouter</option>
+                                <option value="ollama">Ollama (Local)</option>
                             </select>
                         </div>
                         <div class="setting-group api-keys-section">
@@ -124,7 +127,31 @@
                                 <span class="api-key-label">OpenRouter</span>
                                 <input type="password" id="key-openrouter" class="api-key-field" placeholder="sk-or-...">
                             </div>
+                            <div class="api-key-row" data-provider="ollama">
+                                <span class="api-key-label">Ollama URL</span>
+                                <input type="text" id="ollama-base-url" class="api-key-field" placeholder="http://localhost:11434" value="http://localhost:11434">
+                            </div>
                             <p class="api-keys-hint">Only the key for the selected provider is used.</p>
+                        </div>
+                        <div id="ollama-status-section" class="setting-group ollama-section hidden">
+                            <label>Ollama Status</label>
+                            <div class="ollama-status-bar">
+                                <span id="ollama-status-dot" class="status-dot offline"></span>
+                                <span id="ollama-status-text">Not checked</span>
+                                <button id="ollama-check-btn" class="btn-small">Check</button>
+                            </div>
+                            <div id="ollama-models-list" class="ollama-models hidden">
+                                <label>Installed Models</label>
+                                <div id="ollama-installed-models"></div>
+                            </div>
+                            <div class="ollama-pull-row">
+                                <input type="text" id="ollama-pull-input" placeholder="Model name (e.g. llama3.2)" class="api-key-field">
+                                <button id="ollama-pull-btn" class="btn-small">Pull</button>
+                            </div>
+                            <div id="ollama-pull-progress" class="hidden">
+                                <div class="progress-bar"><div id="ollama-progress-fill" class="progress-fill"></div></div>
+                                <span id="ollama-progress-text"></span>
+                            </div>
                         </div>
                         <div class="setting-group">
                             <label for="model-select">Model</label>
@@ -150,6 +177,14 @@
                                     <option value="openai/gpt-oss-120b:free">GPT-OSS 120B (Free)</option>
                                     <option value="deepseek/deepseek-r1-0528:free">DeepSeek R1 (Slow, Free)</option>
                                     <option value="nousresearch/hermes-3-llama-3.1-405b:free">Hermes 3 405B (Free)</option>
+                                </optgroup>
+                                <optgroup label="Ollama (Local)" id="ollama-models">
+                                    <option value="llama3.2">Llama 3.2 (3B, Fast)</option>
+                                    <option value="mistral">Mistral (7B)</option>
+                                    <option value="phi3">Phi-3 (3.8B, Light)</option>
+                                    <option value="gemma2:2b">Gemma 2 (2B, Lightest)</option>
+                                    <option value="qwen2.5:3b">Qwen 2.5 (3B)</option>
+                                    <option value="codellama">Code Llama (7B, Code)</option>
                                 </optgroup>
                                 <optgroup label="OpenRouter (Paid)" id="openrouter-paid-models">
                                     <option value="openai/gpt-4o">GPT-4o</option>
@@ -177,6 +212,20 @@
         </div>
     </div>
 
+    <!-- PIN Auth Overlay -->
+    <div id="pin-overlay" class="hidden">
+        <div class="pin-box">
+            <div class="pin-icon">🔒</div>
+            <h2>SelfAgent</h2>
+            <p>Enter PIN to continue</p>
+            <input type="password" id="pin-input" placeholder="PIN" maxlength="20" autofocus>
+            <button id="pin-submit" class="btn-primary">Unlock</button>
+            <p id="pin-error" class="pin-error"></p>
+        </div>
+    </div>
+
+    <script src="/ui.js"></script>
+    <script src="/settings.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

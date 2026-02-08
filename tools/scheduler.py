@@ -1,7 +1,7 @@
-"""Scheduler tool — schedule one-time and recurring tasks.
+"""Scheduler tool -- schedule one-time and recurring tasks.
 
 Uses asyncio for lightweight in-process scheduling.
-Tasks are stored in SQLite for persistence across restarts.
+Tasks are stored in JSON for persistence across restarts.
 """
 
 import asyncio
@@ -13,10 +13,16 @@ from pathlib import Path
 from typing import Any
 
 from tools.base import BaseTool
+from tools.cron_parser import cron_matches, parse_cron, parse_interval
 
 logger = logging.getLogger(__name__)
 
 STORAGE_DIR = Path(__file__).parent.parent / "storage"
+
+_EXPR_HELP = (
+    "  Interval: 'every 5m', 'every 2h', 'every 1d'\n"
+    "  Cron: '*/5 * * * *' (min hour dom month dow)"
+)
 
 
 class SchedulerTool(BaseTool):
@@ -31,10 +37,8 @@ class SchedulerTool(BaseTool):
             "action": {
                 "type": "string",
                 "enum": [
-                    "schedule_once",
-                    "schedule_recurring",
-                    "list_scheduled",
-                    "cancel_scheduled",
+                    "schedule_once", "schedule_recurring",
+                    "list_scheduled", "cancel_scheduled",
                 ],
                 "description": "The scheduling action to perform",
             },
@@ -69,7 +73,6 @@ class SchedulerTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> str:
         action = kwargs.get("action", "")
-
         try:
             if action == "schedule_once":
                 return await self._schedule_once(
@@ -98,7 +101,6 @@ class SchedulerTool(BaseTool):
             return "Error: run_at (ISO 8601 datetime) is required."
         if not command and not description:
             return "Error: command or task_description is required."
-
         try:
             target_time = datetime.fromisoformat(run_at.replace("Z", "+00:00"))
         except ValueError:
@@ -107,28 +109,20 @@ class SchedulerTool(BaseTool):
         now = datetime.now(timezone.utc)
         if target_time.tzinfo is None:
             target_time = target_time.replace(tzinfo=timezone.utc)
-
         delay = (target_time - now).total_seconds()
         if delay < 0:
             return "Error: run_at is in the past."
 
         task_id = str(uuid.uuid4())[:8]
-        task_info = {
-            "id": task_id,
-            "type": "once",
-            "description": description or command,
-            "command": command,
-            "run_at": run_at,
-            "status": "pending",
+        self._tasks[task_id] = {
+            "id": task_id, "type": "once",
+            "description": description or command, "command": command,
+            "run_at": run_at, "status": "pending",
             "created_at": now.isoformat(),
         }
-        self._tasks[task_id] = task_info
         self._save()
-
-        # Schedule the async task
-        handle = asyncio.create_task(self._run_once(task_id, delay, command))
-        self._handles[task_id] = handle
-
+        self._handles[task_id] = asyncio.create_task(
+            self._run_once(task_id, delay, command))
         return (
             f"Scheduled task '{task_id}'\n"
             f"  Description: {description or command}\n"
@@ -138,45 +132,29 @@ class SchedulerTool(BaseTool):
 
     async def _schedule_recurring(self, description: str, cron_expr: str, command: str) -> str:
         if not cron_expr:
-            return (
-                "Error: cron_expression is required.\n"
-                "  Interval: 'every 5m', 'every 2h', 'every 1d'\n"
-                "  Cron: '*/5 * * * *' (min hour dom month dow)"
-            )
+            return f"Error: cron_expression is required.\n{_EXPR_HELP}"
         if not command and not description:
             return "Error: command or task_description is required."
 
-        # Try simple interval format first
-        interval = self._parse_interval(cron_expr)
+        interval = parse_interval(cron_expr)
         is_cron = False
-
         if interval is None:
-            # Try standard cron format
-            cron_fields = self._parse_cron(cron_expr)
+            cron_fields = parse_cron(cron_expr)
             if cron_fields is None:
-                return (
-                    f"Error: Invalid expression '{cron_expr}'.\n"
-                    f"  Interval: 'every 5m', 'every 2h', 'every 1d'\n"
-                    f"  Cron: '*/5 * * * *' (min hour dom month dow)"
-                )
+                return f"Error: Invalid expression '{cron_expr}'.\n{_EXPR_HELP}"
             is_cron = True
 
         task_id = str(uuid.uuid4())[:8]
         now = datetime.now(timezone.utc)
         task_info = {
-            "id": task_id,
-            "type": "recurring",
-            "description": description or command,
-            "command": command,
-            "cron_expression": cron_expr,
-            "is_cron": is_cron,
-            "status": "active",
-            "created_at": now.isoformat(),
+            "id": task_id, "type": "recurring",
+            "description": description or command, "command": command,
+            "cron_expression": cron_expr, "is_cron": is_cron,
+            "status": "active", "created_at": now.isoformat(),
             "run_count": 0,
         }
         if not is_cron:
             task_info["interval_seconds"] = interval
-
         self._tasks[task_id] = task_info
         self._save()
 
@@ -186,9 +164,7 @@ class SchedulerTool(BaseTool):
         else:
             handle = asyncio.create_task(self._run_recurring(task_id, interval, command))
             schedule_info = f"Interval: {cron_expr} ({interval}s)"
-
         self._handles[task_id] = handle
-
         return (
             f"Scheduled recurring task '{task_id}'\n"
             f"  Description: {description or command}\n"
@@ -199,7 +175,6 @@ class SchedulerTool(BaseTool):
     def _list_scheduled(self) -> str:
         if not self._tasks:
             return "No scheduled tasks."
-
         lines = ["Scheduled tasks:\n"]
         for tid, task in self._tasks.items():
             status = task.get("status", "unknown")
@@ -210,37 +185,48 @@ class SchedulerTool(BaseTool):
             else:
                 extra = f" (at {task.get('run_at', '?')})"
             lines.append(f"  [{status}] {tid}: {desc}{extra}")
-
         return "\n".join(lines)
 
     def _cancel_scheduled(self, task_id: str) -> str:
         if not task_id:
             return "Error: task_id is required."
-
         if task_id not in self._tasks:
             return f"Error: Task '{task_id}' not found."
-
-        # Cancel the asyncio task
         handle = self._handles.get(task_id)
         if handle and not handle.done():
             handle.cancel()
-
         self._tasks[task_id]["status"] = "cancelled"
         self._handles.pop(task_id, None)
         self._save()
-
         return f"Cancelled task '{task_id}'."
+
+    @staticmethod
+    async def _exec_command(command: str) -> None:
+        """Execute a shell command with a 60-second timeout."""
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=60)
+
+    def _mark_run(self, task_id: str) -> None:
+        """Increment run_count and save."""
+        if task_id in self._tasks:
+            self._tasks[task_id]["run_count"] = self._tasks[task_id].get("run_count", 0) + 1
+            self._save()
+
+    def _mark_failed(self, task_id: str) -> None:
+        """Mark a task as failed and save."""
+        if task_id in self._tasks:
+            self._tasks[task_id]["status"] = "failed"
+            self._save()
 
     async def _run_once(self, task_id: str, delay: float, command: str) -> None:
         try:
             await asyncio.sleep(delay)
             if command:
-                proc = await asyncio.create_subprocess_shell(
-                    command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=60)
+                await self._exec_command(command)
             if task_id in self._tasks:
                 self._tasks[task_id]["status"] = "completed"
                 self._save()
@@ -249,33 +235,22 @@ class SchedulerTool(BaseTool):
             logger.info("Scheduled task %s was cancelled", task_id)
         except Exception:
             logger.exception("Scheduled task %s failed", task_id)
-            if task_id in self._tasks:
-                self._tasks[task_id]["status"] = "failed"
-                self._save()
+            self._mark_failed(task_id)
 
     async def _run_recurring(self, task_id: str, interval: float, command: str) -> None:
         try:
             while True:
                 await asyncio.sleep(interval)
                 if command:
-                    proc = await asyncio.create_subprocess_shell(
-                        command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    await asyncio.wait_for(proc.communicate(), timeout=60)
-                if task_id in self._tasks:
-                    self._tasks[task_id]["run_count"] = self._tasks[task_id].get("run_count", 0) + 1
-                    self._save()
+                    await self._exec_command(command)
+                self._mark_run(task_id)
                 logger.info("Recurring task %s executed (run #%d)", task_id,
                             self._tasks.get(task_id, {}).get("run_count", 0))
         except asyncio.CancelledError:
             logger.info("Recurring task %s was cancelled", task_id)
         except Exception:
             logger.exception("Recurring task %s failed", task_id)
-            if task_id in self._tasks:
-                self._tasks[task_id]["status"] = "failed"
-                self._save()
+            self._mark_failed(task_id)
 
     async def _run_cron(self, task_id: str, cron_expr: str, command: str) -> None:
         """Run a task on a cron schedule by checking every 30 seconds."""
@@ -284,120 +259,26 @@ class SchedulerTool(BaseTool):
             while True:
                 await asyncio.sleep(30)
                 now = datetime.now(timezone.utc)
-                # Only run once per minute
                 current_minute = now.minute + now.hour * 60 + now.day * 1440
                 if current_minute == last_run_minute:
                     continue
-
-                if self._cron_matches(cron_expr, now):
+                if cron_matches(cron_expr, now):
                     last_run_minute = current_minute
                     if command:
-                        proc = await asyncio.create_subprocess_shell(
-                            command,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        await asyncio.wait_for(proc.communicate(), timeout=60)
-                    if task_id in self._tasks:
-                        self._tasks[task_id]["run_count"] = self._tasks[task_id].get("run_count", 0) + 1
-                        self._save()
+                        await self._exec_command(command)
+                    self._mark_run(task_id)
                     logger.info("Cron task %s executed (run #%d)", task_id,
                                 self._tasks.get(task_id, {}).get("run_count", 0))
         except asyncio.CancelledError:
             logger.info("Cron task %s was cancelled", task_id)
         except Exception:
             logger.exception("Cron task %s failed", task_id)
-            if task_id in self._tasks:
-                self._tasks[task_id]["status"] = "failed"
-                self._save()
-
-    def _parse_cron(self, expr: str) -> list | None:
-        """Parse a 5-field cron expression. Returns list of 5 field strings or None."""
-        expr = expr.strip()
-        fields = expr.split()
-        if len(fields) != 5:
-            return None
-        # Basic validation: each field should contain digits, *, /, -, or ,
-        import re
-        for f in fields:
-            if not re.match(r'^[\d*/,\-]+$', f):
-                return None
-        return fields
-
-    def _cron_matches(self, cron_expr: str, dt: datetime) -> bool:
-        """Check if a datetime matches a cron expression."""
-        fields = cron_expr.strip().split()
-        if len(fields) != 5:
-            return False
-
-        values = [dt.minute, dt.hour, dt.day, dt.month, dt.weekday()]
-        # Cron weekday: 0=Sunday, Python weekday: 0=Monday
-        # Convert Python weekday to cron weekday
-        cron_weekday = (dt.weekday() + 1) % 7  # Mon=1..Sun=0
-        values[4] = cron_weekday
-
-        maxvals = [59, 23, 31, 12, 6]
-
-        for field, val, maxval in zip(fields, values, maxvals):
-            if not self._cron_field_matches(field, val, maxval):
-                return False
-        return True
-
-    def _cron_field_matches(self, field: str, value: int, max_val: int) -> bool:
-        """Check if a single cron field matches a value."""
-        for part in field.split(","):
-            if "/" in part:
-                base, step = part.split("/", 1)
-                step = int(step)
-                if base == "*":
-                    if value % step == 0:
-                        return True
-                else:
-                    start = int(base)
-                    if value >= start and (value - start) % step == 0:
-                        return True
-            elif "-" in part:
-                start, end = part.split("-", 1)
-                if int(start) <= value <= int(end):
-                    return True
-            elif part == "*":
-                return True
-            else:
-                if int(part) == value:
-                    return True
-        return False
-
-    def _parse_interval(self, expr: str) -> int | None:
-        """Parse 'every Xm/Xh/Xd' into seconds."""
-        expr = expr.strip().lower()
-        if expr.startswith("every "):
-            expr = expr[6:].strip()
-
-        if not expr:
-            return None
-
-        unit = expr[-1]
-        try:
-            value = int(expr[:-1])
-        except ValueError:
-            return None
-
-        if unit == "s":
-            return value
-        elif unit == "m":
-            return value * 60
-        elif unit == "h":
-            return value * 3600
-        elif unit == "d":
-            return value * 86400
-        return None
+            self._mark_failed(task_id)
 
     def _save(self) -> None:
         STORAGE_DIR.mkdir(parents=True, exist_ok=True)
         self._db_path.write_text(
-            json.dumps(self._tasks, indent=2, default=str),
-            encoding="utf-8",
-        )
+            json.dumps(self._tasks, indent=2, default=str), encoding="utf-8")
 
     def _load(self) -> None:
         if self._db_path.exists():
